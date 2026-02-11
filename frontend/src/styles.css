@@ -1,0 +1,23 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; color: #000000; background: #f8fafc; }
+.app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+.header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: white; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; }
+.header h1 { margin: 0; font-size: 18px; color: #000000; }
+.header nav a { margin: 0 8px; text-decoration: none; color: #000000; padding: 6px 10px; border-radius: 8px; }
+.header nav a.active, .header nav a:hover { background: #e2e8f0; color: #000000; }
+.main { padding: 16px; max-width: 1000px; margin: 0 auto; width: 100%; color: #000000; }
+.footer { padding: 10px 16px; font-size: 12px; color: #000000; border-top: 1px solid #e2e8f0; background: #fafafa; }
+.panel { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; color: #000000; }
+.row { display: flex; gap: 8px; align-items: center; margin: 8px 0 16px; }
+input, textarea { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 10px; outline: none; color: #000000; }
+button { padding: 10px 14px; border: 1px solid #0ea5e9; background: #0ea5e9; color: white; border-radius: 10px; cursor: pointer; }
+button[disabled] { opacity: 0.6; cursor: not-allowed; }
+.box { white-space: pre-wrap; background: #f5f5f5; color: #000000; padding: 12px; border-radius: 10px; overflow: auto; border: 1px solid #e2e8f0; }
+.chat { display: flex; flex-direction: column; gap: 8px; min-height: 300px; max-height: 60vh; overflow: auto; }
+.chat-msg { display: flex; gap: 8px; align-items: flex-start; }
+.chat-msg.user { flex-direction: row-reverse; }
+.chat-msg .avatar { width: 32px; height: 32px; display: grid; place-items: center; background: #e2e8f0; border-radius: 50%; color: #000000; }
+.chat-msg .bubble { max-width: 80%; background: #f1f5f9; padding: 8px 10px; border-radius: 12px; color: #000000; }
+.loading { color: #0ea5e9; font-weight: 600; }
+.input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 10px; }
+.status { margin-top: 10px; color: #000000; }
