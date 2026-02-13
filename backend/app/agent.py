@@ -137,20 +137,93 @@ class StudyAgent:
         return questions
 
     def _analyze(self, state: State) -> State:
-        # Basic heuristic analysis using retrieval and optional history
-        history = state.get("history", [])
-        attempted = [m for m in history if m.get("role") == "assistant" and m.get("type") == "quiz_result"]
-        summary = {
-            "attempts": len(attempted),
-            "weak_topics": [],
-        }
-        # Use LLM to summarize weaknesses from history text
-        history_text = "\n".join([str(m.get("content")) for m in history][-20:])
+        # Check what type of analysis to perform based on input
+        analysis_input = state.get("input", "").lower()
+        session_id = state.get("session_id")
+        
+        if not self.storage or not session_id:
+            state["analysis"] = {"summary": "No data available for analysis."}
+            state["output"] = state["analysis"]
+            return state
+        
+        # Determine analysis type
+        if "chat" in analysis_input or "conversation" in analysis_input:
+            return self._analyze_chat(state, session_id)
+        else:
+            return self._analyze_quiz(state, session_id)
+    
+    def _analyze_quiz(self, state: State, session_id: str) -> State:
+        """Analyze based on quiz performance"""
+        quiz_history = self.storage.get_quiz_history(session_id)
+        
+        if not quiz_history or len(quiz_history) == 0:
+            state["analysis"] = {"summary": "No quiz attempts found. Take a quiz first to identify weak areas."}
+            state["output"] = state["analysis"]
+            return state
+        
+        # Build quiz performance summary for LLM
+        quiz_summary_parts = []
+        for idx, attempt in enumerate(quiz_history[-5:], 1):
+            topic = attempt.get('topic', 'Unknown')
+            correct = attempt.get('correct_count', 0)
+            total = attempt.get('total_questions', 0)
+            accuracy = (correct / total * 100) if total > 0 else 0
+            
+            questions = attempt.get('questions', [])
+            incorrect_qs = [q for q in questions if q.get('user_answer', {}).get('is_correct') == False]
+            
+            quiz_summary_parts.append(
+                f"Quiz {idx} - {topic}: {correct}/{total} correct ({accuracy:.0f}%)\n"
+                f"Incorrect questions: {len(incorrect_qs)}"
+            )
+            
+            for q in incorrect_qs[:3]:
+                quiz_summary_parts.append(f"  ❌ {q.get('question', '')[:80]}...")
+        
+        quiz_text = "\n".join(quiz_summary_parts)
+        
         prompt = (
-            "Given the learner's recent interactions and quiz results, identify 3 weakest subtopics,"
-            " likely misconceptions, and give 3 targeted next steps. Return compact bullet points.\n\n"
-            f"History:\n{history_text}\n"
+            "Analyze the quiz performance below and identify the TOP 5 weakest areas.\n"
+            "Return ONLY a numbered list with this exact format:\n"
+            "1. Topic Name: Brief explanation of the weakness\n"
+            "2. Topic Name: Brief explanation of the weakness\n"
+            "Do NOT include introductory text or headers.\n\n"
+            f"Quiz Performance Data:\n{quiz_text}\n\n"
+            "TOP 5 WEAK AREAS:\n"
         )
+        
+        analysis = self.llm.generate(prompt)
+        state["analysis"] = {"summary": analysis}
+        state["output"] = state["analysis"]
+        return state
+    
+    def _analyze_chat(self, state: State, session_id: str) -> State:
+        """Analyze based on conversation history"""
+        history = state.get("history", [])
+        
+        if not history or len(history) < 3:
+            state["analysis"] = {"summary": "Not enough conversation history. Chat more with the tutor first."}
+            state["output"] = state["analysis"]
+            return state
+        
+        # Build conversation summary
+        recent_messages = history[-30:]
+        conversation_text = "\n".join([
+            f"{msg.get('role', 'unknown').upper()}: {msg.get('content', '')[:200]}"
+            for msg in recent_messages
+        ])
+        
+        prompt = (
+            "Analyze the conversation below and identify the TOP 5 areas where the learner shows confusion, "
+            "asks repeated questions, or needs clarification.\n"
+            "Return ONLY a numbered list with this exact format:\n"
+            "1. Topic Name: Brief explanation of the confusion or gap\n"
+            "2. Topic Name: Brief explanation of the confusion or gap\n"
+            "Do NOT include introductory text or headers.\n\n"
+            f"Conversation History:\n{conversation_text}\n\n"
+            "TOP 5 WEAK AREAS:\n"
+        )
+        
         analysis = self.llm.generate(prompt)
         state["analysis"] = {"summary": analysis}
         state["output"] = state["analysis"]

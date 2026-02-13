@@ -1,7 +1,7 @@
 export type Task = 'tutor' | 'quiz' | 'analyze' | 'roadmap' | 'questions'
 export type TaskStatus = 'pending' | 'complete'
 
-const BASE = 'http://127.0.0.1:8001'
+const BASE = 'http://127.0.0.1:8000'
 const SESSION_KEY = 'agentic-study-session'
 
 export type QuizQuestionDto = {
@@ -43,6 +43,32 @@ export function getSessionId(): string | undefined {
 function persistSessionId(id?: string): void {
   if (typeof window === 'undefined' || !id) return
   localStorage.setItem(SESSION_KEY, id)
+}
+
+export function createNewSession(): string {
+  const newSessionId = crypto.randomUUID()
+  persistSessionId(newSessionId)
+  // Clear learning concept when creating new session
+  localStorage.removeItem('agentic-learning-concept')
+  localStorage.removeItem('agentic-quiz-concept')
+  return newSessionId
+}
+
+export function getSessionMetadata(): { id: string; created: string } | null {
+  const id = getSessionId()
+  if (!id) return null
+  const created = localStorage.getItem(`session_${id}_created`) || new Date().toISOString()
+  if (!localStorage.getItem(`session_${id}_created`)) {
+    localStorage.setItem(`session_${id}_created`, created)
+  }
+  return { id, created }
+}
+
+export function getSessionDisplayName(): string {
+  const metadata = getSessionMetadata()
+  if (!metadata) return 'No session'
+  const date = new Date(metadata.created)
+  return `Session ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 }
 
 export async function callAgent(

@@ -44,11 +44,28 @@ export default function Roadmap() {
     }
   }
 
-  function startLearning(taskTitle: string) {
-    // Extract concept from title (e.g., "Review Arrays" -> "Arrays")
-    const concept = taskTitle.replace(/^Review\s+/i, '').trim()
+  function startLearning(task: RoadmapTaskDto) {
+    // Extract concept from task title (remove "Review " prefix)
+    let concept = task.title.replace(/^Review\s+/i, '').trim()
+    
+    // If task is linked to a weak topic, use the actual weak topic title
+    if (task.weak_topic_id && weakTopics.length > 0) {
+      const weakTopic = weakTopics.find(wt => wt.id === task.weak_topic_id)
+      if (weakTopic && weakTopic.title) {
+        concept = weakTopic.title.trim()
+        console.log('Using weak topic:', concept)
+      }
+    }
+    
+    // Final validation - if concept looks malformed, extract first few words
+    if (concept.length > 50 || concept.toLowerCase().includes('weakest') || 
+        concept.toLowerCase().includes('based on')) {
+      const words = concept.split(' ').filter(w => w.length > 2)
+      concept = words.slice(0, 3).join(' ')
+    }
+    
+    console.log('Starting learning for concept:', concept)
     setLearningConcept(concept)
-    // Store in localStorage for Tutor page to pick up
     localStorage.setItem('agentic-learning-concept', concept)
     navigate('/')
   }
@@ -60,17 +77,46 @@ export default function Roadmap() {
   return (
     <div className="panel">
       {loading && <div className="loading">Refreshing roadmap…</div>}
-      {error && <div className="error">{error}</div>}
+      {error && <div className="error" style={{ color: '#F43F5E', padding: '12px', marginBottom: '16px' }}>{error}</div>}
       
       {weakTopics.length > 0 && (
-        <div className="box" style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8d7da' }}>
-          <strong>🎯 Identified Weak Areas (Auto-generated from Analysis):</strong>
-          <ul style={{ marginTop: '0.5rem', marginBottom: '0', paddingLeft: '1.5rem' }}>
+        <div className="box" style={{ 
+          marginBottom: '1rem',
+          padding: '20px',
+          backgroundColor: '#1a1a24',
+          border: '1px solid #F43F5E',
+          borderLeft: '3px solid #F43F5E'
+        }}>
+          <strong style={{ 
+            color: '#F43F5E',
+            fontSize: '14px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em'
+          }}>
+            🎯 Identified Weak Areas
+          </strong>
+          <ul style={{ 
+            marginTop: '12px',
+            marginBottom: '0',
+            paddingLeft: '1.5rem',
+            color: '#e4e4e7'
+          }}>
             {weakTopics.map(wt => (
-              <li key={wt.id}><strong>{wt.title}</strong>: {wt.detail}</li>
+              <li key={wt.id} style={{ 
+                marginBottom: '8px',
+                fontSize: '13px',
+                lineHeight: '1.6'
+              }}>
+                <strong style={{ color: '#fb7185' }}>{wt.title}</strong>: {wt.detail}
+              </li>
             ))}
           </ul>
-          <p style={{ fontSize: '0.85rem', marginTop: '0.5rem', marginBottom: 0 }}>
+          <p style={{ 
+            fontSize: '12px',
+            marginTop: '12px',
+            marginBottom: 0,
+            color: '#a1a1aa'
+          }}>
             ✅ Tasks below are automatically created to address these areas
           </p>
         </div>
@@ -82,11 +128,11 @@ export default function Roadmap() {
               <strong>{task.title}</strong>
               <p>{task.detail}</p>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button 
                 type="button" 
-                onClick={() => startLearning(task.title)}
-                style={{ backgroundColor: '#007bff', color: '#fff' }}
+                onClick={() => startLearning(task)}
+                style={{ backgroundColor: '#6366F1', borderColor: '#6366F1', color: '#fff' }}
               >
                 📚 Learn
               </button>
@@ -96,7 +142,7 @@ export default function Roadmap() {
             </div>
           </div>
         ))}
-        {!tasks.length && <p>No roadmap tasks yet; run a quiz or analysis first.</p>}
+        {!tasks.length && <p style={{ color: '#a1a1aa', fontSize: '13px' }}>No roadmap tasks yet; run a quiz or analysis first.</p>}
       </div>
     </div>
   )

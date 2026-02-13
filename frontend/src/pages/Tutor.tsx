@@ -34,10 +34,21 @@ export default function Tutor() {
   useEffect(() => {
     const concept = localStorage.getItem('agentic-learning-concept')
     if (concept) {
-      setLearningConcept(concept)
+      // Validate concept is not malformed
+      const cleanConcept = concept.trim()
+      if (cleanConcept.length > 50 || 
+          cleanConcept.toLowerCase().includes('weakest') ||
+          cleanConcept.toLowerCase().includes('based on') ||
+          cleanConcept.toLowerCase().includes('subtopics')) {
+        console.warn('Malformed learning concept detected:', cleanConcept)
+        localStorage.removeItem('agentic-learning-concept')
+        return
+      }
+      
+      setLearningConcept(cleanConcept)
       localStorage.removeItem('agentic-learning-concept')
       // Auto-prompt to learn
-      const prompt = `Please teach me about ${concept}. Explain it clearly with examples and key points.`
+      const prompt = `Please teach me about ${cleanConcept}. Explain it clearly with examples and key points.`
       setInput(prompt)
       // Auto-send after a brief delay to ensure history is loaded
       setTimeout(() => {

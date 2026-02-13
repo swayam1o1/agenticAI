@@ -323,12 +323,14 @@ class Storage:
                 for message in records
             ]
 
-    def get_weak_topics(self, session_id: str) -> List[Dict[str, Any]]:
+    def get_weak_topics(self, session_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get weak topics for a session, limited to most recent (default 5)"""
         with self.Session() as session:
             topics = (
                 session.query(WeakTopic)
                 .filter(WeakTopic.session_id == session_id)
                 .order_by(WeakTopic.created_at.desc())
+                .limit(limit)
                 .all()
             )
             return [
@@ -406,25 +408,65 @@ class Storage:
             existing.add(key)
 
     def _parse_summary(self, summary: str) -> List[Tuple[str, str]]:
+        """Parse weak topics from LLM output, handling various formats including markdown"""
         items: List[Tuple[str, str]] = []
         clean_lines = [line.strip() for line in summary.splitlines() if line.strip()]
+        
         for line in clean_lines:
-            stripped = line.lstrip("•-– ")
+            # Skip header lines that are too long or contain analysis intro text
+            if len(line) > 120 or any(skip_phrase in line.lower() for skip_phrase in [
+                'based on the', 'analyze the', 'top 5 weak', 'weakest areas', 
+                'quiz performance', 'here are', 'following are'
+            ]):
+                continue
+            
+            # Remove bullet points, numbers, and list markers
+            stripped = line.lstrip("•-–*123456789. ")
+            
+            # Remove markdown bold formatting
+            stripped = stripped.replace('**', '')
+            
+            # Skip if it's too short or empty
+            if not stripped or len(stripped) < 5:
+                continue
+            
+            # Try to extract topic: detail format
             if ":" in stripped:
-                head, tail = stripped.split(":", 1)
-                topic, detail = head.strip(), tail.strip()
-            elif "-" in stripped:
-                head, tail = stripped.split("-", 1)
-                topic, detail = head.strip(), tail.strip()
+                parts = stripped.split(":", 1)
+                topic = parts[0].strip()
+                detail = parts[1].strip() if len(parts) > 1 else stripped
+                
+                # Special case: If topic is generic like "Topic Name", swap it
+                if topic.lower() in ['topic name', 'topic', 'weak area', 'concept']:
+                    topic = detail
+                    detail = stripped
+            elif "-" in stripped and stripped.count("-") == 1:
+                parts = stripped.split("-", 1)
+                topic = parts[0].strip()
+                detail = parts[1].strip() if len(parts) > 1 else stripped
             else:
-                parts = stripped.split(" – ", 1)
-                if len(parts) == 2:
-                    topic, detail = parts[0].strip(), parts[1].strip()
+                # If no clear separator, use first few words as topic
+                words = stripped.split()
+                if len(words) > 5:
+                    topic = " ".join(words[:3])
+                    detail = stripped
                 else:
-                    topic, detail = "weak_topic", stripped
-            if topic:
+                    topic = stripped
+                    detail = stripped
+            
+            # Clean up topic name - remove common prefixes and extra text
+            topic = topic.replace('TOP 5 WEAK AREAS', '').replace('WEAK AREAS', '').strip()
+            topic = topic.replace('Specific misconception or gap', '').strip()
+            topic = topic.strip(':-,.')
+            
+            # Only add if topic is meaningful and not too long
+            if 3 <= len(topic) <= 50 and not any(skip in topic.lower() for skip in [
+                'given', 'based on', 'here are', 'the learner', 'quiz performance',
+                'are the', 'following', 'identify'
+            ]):
                 items.append((topic, detail))
-        return items
+        
+        return items[:5]  # Limit to top 5
 
     def _serialize_question(self, question: QuizQuestion, answer: Optional[QuizAnswer]) -> Dict[str, Any]:
         return {

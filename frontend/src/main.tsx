@@ -7,6 +7,7 @@ import Quiz from './pages/Quiz'
 import Analytics from './pages/Analytics'
 import Roadmap from './pages/Roadmap'
 import Memory from './pages/Memory'
+import Sessions from './pages/Sessions'
 import './styles.css'
 
 const router = createBrowserRouter([
@@ -18,7 +19,8 @@ const router = createBrowserRouter([
       { path: 'quiz', element: <Quiz /> },
       { path: 'analytics', element: <Analytics /> },
       { path: 'roadmap', element: <Roadmap /> },
-      { path: 'memory', element: <Memory /> }
+      { path: 'memory', element: <Memory /> },
+      { path: 'sessions', element: <Sessions /> }
     ]
   }
 ])
