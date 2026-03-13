@@ -5,6 +5,20 @@
 
 ---
 
+## ✅ TODAY'S UPDATES AT A GLANCE
+> *Quick-reference card for presenting today's refinements — see §4 Contribution 7 for full detail.*
+
+| What changed | File(s) | Why it matters |
+|---|---|---|
+| Model name corrected: `llama3` → `llama3.2` | `README.md`, `USAGE.md` | Docs now match the actual model configured in `main.py` |
+| Removed duplicate "Quick Start" section | `README.md` | README had the same setup instructions twice — cleaned to one canonical flow |
+| API endpoint table expanded: 3 → 18 entries | `README.md` | All routes implemented in `main.py` are now documented (was missing 15 endpoints) |
+| Sessions tab documented | `USAGE.md` | The 6th frontend tab had no usage documentation — now covered |
+| Sessions page added to architecture diagram | `ARCHITECTURE.md` | Mermaid frontend diagram was missing the Sessions page node |
+| App header title fixed: "ITR" → "Agentic Study Buddy" | `frontend/src/App.tsx` | Browser tab and page header now correctly show the project name |
+
+---
+
 ## TABLE OF CONTENTS
 1. [Project Introduction & Motivation](#1-project-introduction--motivation)  — **Presenter 1**
 2. [Creativity & Innovation](#2-creativity--innovation)  — **Presenter 2**
@@ -229,6 +243,23 @@ We built a complete six-tab single-page application with:
 - File upload interface for study materials
 - Session management panel
 
+#### Contribution 7 — Documentation Accuracy & UI Refinements
+**Files:** `README.md`, `USAGE.md`, `ARCHITECTURE.md`, `frontend/src/App.tsx`
+
+After the core system was built, we performed a systematic audit of all project documentation against the live code. The changes we made today:
+
+1. **Model name consistency** — Every documentation file referenced `llama3`, but the backend (`main.py`) was already upgraded to `llama3.2`. We corrected all three affected files so that a new developer following the setup guide will use the right model without confusion.
+
+2. **Complete API surface documentation** — The `README.md` endpoints table listed only 3 of the 18 routes implemented in `main.py`. We documented all 18 endpoints, including the SSE streaming tutor, quiz answer submission, the full mastery lifecycle (`/api/learn/*`), and recommendations — giving users and evaluators a complete picture of the API.
+
+3. **Sessions tab coverage in USAGE.md** — The sixth frontend tab (Sessions) had no entry in the usage guide. We added §6 explaining session isolation and how to use the "New Session" workflow.
+
+4. **Architecture diagram completeness** — `ARCHITECTURE.md` contained a Mermaid diagram showing the frontend pages, but the Sessions page was absent. We added the missing `Sessions` node to ensure the diagram accurately reflects the deployed application.
+
+5. **App branding fix** — The React app header displayed `"ITR"` (a placeholder left over from an earlier draft). We corrected this to `"Agentic Study Buddy"` so the product name is shown correctly to every user who opens the application.
+
+**Why this matters:** Accurate documentation is a direct measure of code quality. A README that references the wrong model or omits 15 of 18 endpoints creates confusion for anyone trying to run, test, or evaluate the system. These refinements ensure the documentation is a faithful mirror of the actual implementation.
+
 ---
 
 ## 5. Live Demo Script
@@ -380,7 +411,7 @@ Wait for the result.
 |---|---|
 | **Total backend LOC** | ~1,871 lines across 7 Python files |
 | **Total frontend LOC** | ~11 TypeScript/TSX files |
-| **API endpoints** | 15+ REST endpoints + 1 SSE streaming endpoint |
+| **API endpoints** | 18 REST endpoints + 1 SSE streaming endpoint |
 | **Database tables** | 8 normalized tables with foreign key relationships |
 | **Agent task types** | 5 (tutor, quiz, analyze, roadmap, questions) |
 | **Frontend tabs/views** | 6 (Tutor, Quiz, Weak Areas, Roadmap, Memory, Sessions) |
