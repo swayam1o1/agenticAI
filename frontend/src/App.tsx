@@ -33,7 +33,7 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          <h1>ITR</h1>
+          <h1>Agentic Study Buddy</h1>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               {sessionName}

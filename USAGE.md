@@ -25,6 +25,9 @@ Get a personalized 2-week study plan with daily objectives, resources, and time 
 ### 5. **Memory** (Knowledge Base)
 Upload study materials (notes, PDFs, text) to build your personalized knowledge base. The agent uses FAISS to semantically search this content.
 
+### 6. **Sessions** (Session Management)
+View and manage your learning sessions. Each session maintains isolated history, weak area profiles, quiz records, and roadmaps. Use "New Session" in the header to start fresh.
+
 ## Workflow Example
 
 1. **Build Knowledge Base**
@@ -56,7 +59,7 @@ Upload study materials (notes, PDFs, text) to build your personalized knowledge 
 
 - **Backend:** FastAPI running on http://127.0.0.1:8001
 - **Frontend:** React (Vite) on http://127.0.0.1:5173
-- **LLM:** Ollama (llama3) - runs locally, no API keys needed
+- **LLM:** Ollama (llama3.2) - runs locally, no API keys needed
 - **Memory:** FAISS vector store persists in `backend/data/memory.index`
 - **Orchestration:** LangGraph manages the retrieve→generate workflow
 

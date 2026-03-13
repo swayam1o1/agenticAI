@@ -12,6 +12,7 @@ graph TB
             Analytics[Analytics Page<br/>Weak Area Analysis]
             Roadmap[Roadmap Page<br/>Task Management]
             Memory[Memory Page<br/>Document Upload]
+            Sessions[Sessions Page<br/>Session Management]
         end
         
         subgraph "State Management"

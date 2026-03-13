@@ -12,10 +12,10 @@ Single-agent, stateful RAG tutor powered by LangGraph + FAISS + Ollama (Llama 3)
 ## Prereqs
 - Python 3.10+
 - Node.js 18+
-- Ollama running with model `llama3`
+- Ollama running with model `llama3.2`
 
 ```bash
-ollama pull llama3
+ollama pull llama3.2
 ollama serve
 ```
 
@@ -54,29 +54,28 @@ npm run dev
 
 Visit: http://127.0.0.1:5173
 
-## Quick Start
-
-**Terminal 1 - Backend:**
-```bash
-cd backend
-/usr/bin/python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --app-dir .
-```
-
-**Terminal 2 - Frontend:**
-```bash
-cd frontend
-npm run dev
-```
-
-**Open browser:** http://127.0.0.1:5173
-
 ## Available Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/health` | GET | Health check - returns `{"status":"ok"}` |
+| `/api/health` | GET | Health check — returns `{"status":"ok"}` |
+| `/api/memory` | GET | List all ingested memory items |
 | `/api/memory` | POST | Add study materials (text or file upload) |
 | `/api/agent` | POST | Run agent tasks: `tutor`, `quiz`, `analyze`, `roadmap`, `questions` |
+| `/api/tutor/stream` | POST | Stream tutor response token-by-token via SSE |
+| `/api/history` | GET | Get full message history for a session |
+| `/api/weak-topics` | GET | Get identified weak topics for a session |
+| `/api/analysis` | GET | Get the latest analysis summary for a session |
+| `/api/quiz-history` | GET | Get all quiz attempts for a session |
+| `/api/quiz-answer` | POST | Submit an answer to a quiz question |
+| `/api/roadmap` | GET | Get roadmap tasks for a session |
+| `/api/roadmap/task-status` | POST | Update the status of a roadmap task |
+| `/api/recommendations` | GET | Get AI-powered learning recommendations |
+| `/api/learn/start` | POST | Phase 1 of mastery cycle — teach a concept |
+| `/api/learn/quiz` | POST | Phase 2 of mastery cycle — quiz on a concept |
+| `/api/learn/analyze` | POST | Phase 3 of mastery cycle — analyze quiz results |
+| `/api/learn/progress` | GET | Get cumulative mastery progress for concept(s) |
+| `/api/mastery` | GET | Get all concept mastery data for a session |
 
 ## API Examples
 
@@ -117,7 +116,7 @@ curl -X POST http://127.0.0.1:8001/api/agent \
 
 - **Backend**: Python 3.9+, FastAPI, LangGraph state machine, FAISS vector store
 - **Frontend**: React 18, TypeScript, Vite, React Router
-- **LLM**: Ollama (llama3) running locally on port 11434
+- **LLM**: Ollama (llama3.2) running locally on port 11434
 - **Memory**: FAISS index persists to `backend/data/memory.index`
 - **CORS**: Enabled for http://127.0.0.1:5173
 
