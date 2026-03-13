@@ -10,7 +10,7 @@ from .utils.ollama_client import OllamaClient
 
 
 class FAISSMemory:
-    def __init__(self, data_dir: str, embed_model: str = "llama3"):
+    def __init__(self, data_dir: str, embed_model: str = "mxbai-embed-large"):
         os.makedirs(data_dir, exist_ok=True)
         self.index_path = os.path.join(data_dir, "memory.index")
         self.meta_path = os.path.join(data_dir, "memory_meta.json")
@@ -84,3 +84,17 @@ class FAISSMemory:
             md = self.metadata.get(doc_id, {})
             results.append((doc_id, float(score), md))
         return results
+
+    def list_memories(self, limit: int = 100) -> List[Dict[str, Any]]:
+        items: List[Dict[str, Any]] = []
+        all_ids = list(self.metadata.keys())
+        for doc_id in reversed(all_ids[-limit:]):
+            payload = self.metadata.get(doc_id, {})
+            items.append(
+                {
+                    "id": doc_id,
+                    "text": payload.get("text", ""),
+                    "meta": payload.get("meta", {}),
+                }
+            )
+        return items

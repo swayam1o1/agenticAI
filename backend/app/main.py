@@ -1,7 +1,9 @@
 import os
+import json as _json
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from typing import List, Optional
 import uvicorn
 
@@ -17,19 +19,20 @@ DATA_DIR = os.path.join(ROOT_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 CHAT_DB = os.path.join(DATA_DIR, "chat.db")
 OLLAMA_MODEL = "llama3.2"
+EMBED_MODEL = "mxbai-embed-large"
 
 app = FastAPI(title="Agentic Study Buddy", version="0.1.0")
 
 # CORS (adjust origins as needed)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-memory = FAISSMemory(data_dir=DATA_DIR, embed_model=OLLAMA_MODEL)
+memory = FAISSMemory(data_dir=DATA_DIR, embed_model=EMBED_MODEL)
 storage = Storage(f"sqlite:///{CHAT_DB}")
 agent = StudyAgent(memory=memory, model=OLLAMA_MODEL, storage=storage)
 orchestrator = AgenticOrchestrator(agent=agent, storage=storage, memory=memory)
@@ -55,13 +58,93 @@ async def ingest_memory(texts: Optional[List[str]] = Form(default=None), file: O
     return {"added": len(ids), "ids": ids}
 
 
+@app.get("/api/memory")
+async def read_memory_bank(limit: int = 100):
+    return {"items": memory.list_memories(limit=limit)}
+
+
 @app.post("/api/agent", response_model=AgentResponse)
 async def run_agent(req: AgentRequest):
     history = [m.dict() for m in (req.history or [])]
     result = agent.run(task=req.task, user_input=req.input, history=history, session_id=req.session_id)
-    response = AgentResponse(task=req.task, output=result["output"], meta=result.get("meta", {}))
-    response.session_id = result.get("session_id")
+    session_id = result.get("session_id")
+    meta = dict(result.get("meta", {}))
+    if session_id:
+        meta["next_action"] = orchestrator.get_next_recommended_action(session_id)
+    response = AgentResponse(task=req.task, output=result["output"], meta=meta)
+    response.session_id = session_id
     return response
+
+
+@app.post("/api/tutor/stream")
+async def stream_tutor(req: AgentRequest):
+    history = [m.dict() for m in (req.history or [])]
+    session_id = storage.ensure_session(req.session_id)
+    storage.log_message(session_id, "user", req.input, task="tutor")
+
+    # Get context from memory
+    hits = memory.similarity_search(req.input, k=5)
+    ctx = "\n\n".join([f"[Score {score:.2f}] {md['text']}" for _, score, md in hits])
+
+    # Build conversation history text
+    history_text = ""
+    if history:
+        recent = history[-10:]
+        history_text = "\n".join([f"{m.get('role','').upper()}: {m.get('content','')}" for m in recent])
+
+    proactive = orchestrator.orchestrate_learning_cycle(session_id, "tutor")
+    weak_topics = proactive.get("weak_topics", [])
+    roadmap_focus = proactive.get("roadmap_tasks", [])
+
+    prompt = (
+        "You are an expert AI tutor. Your teaching style:\n"
+        "- Explain concepts step-by-step with clear structure\n"
+        "- Use real-world analogies and examples\n"
+        "- Format with markdown: ## headers, **bold** key terms, bullet points\n"
+        "- Use code blocks for code or pseudocode\n"
+        "- Be concise but thorough, ask follow-up questions when helpful\n\n"
+    )
+    if ctx.strip():
+        prompt += f"Reference Material:\n{ctx}\n\n"
+    if history_text:
+        prompt += f"Conversation so far:\n{history_text}\n\n"
+    if weak_topics:
+        prompt += "Known weak areas to reinforce:\n"
+        prompt += "\n".join([f"- {item.get('title', 'Unknown')}: {item.get('detail', '')}" for item in weak_topics])
+        prompt += "\n\n"
+    if roadmap_focus:
+        prompt += "Open study tasks:\n"
+        prompt += "\n".join([f"- {task.get('title', 'Task')}: {task.get('detail', '')}" for task in roadmap_focus])
+        prompt += "\n\n"
+    prompt += f"Student: {req.input}\nTutor:"
+
+    full_tokens: List[str] = []
+
+    async def event_stream():
+        async for token in agent.llm.generate_stream_async(prompt):
+            full_tokens.append(token)
+            yield f"data: {_json.dumps({'token': token})}\n\n"
+        answer = "".join(full_tokens)
+        storage.log_message(session_id, "assistant", answer, task="tutor")
+        memory.add_texts(
+            [
+                (
+                    f"Task: tutor\n"
+                    f"Learner request: {req.input.strip()}\n"
+                    f"Tutor response summary: {answer[:1200]}\n"
+                    f"Referenced memory chunks: {len(hits)}"
+                )
+            ],
+            [{"session_id": session_id, "task": "tutor", "kind": "interaction-summary"}],
+        )
+        next_action = orchestrator.get_next_recommended_action(session_id)
+        yield f"data: {_json.dumps({'done': True, 'session_id': session_id, 'next_action': next_action})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/history")

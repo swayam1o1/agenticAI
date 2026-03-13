@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import uuid
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -410,14 +411,23 @@ class Storage:
     def _parse_summary(self, summary: str) -> List[Tuple[str, str]]:
         """Parse weak topics from LLM output, handling various formats including markdown"""
         items: List[Tuple[str, str]] = []
-        clean_lines = [line.strip() for line in summary.splitlines() if line.strip()]
+        normalized = summary.replace("\r", "\n")
+        numbered_chunks = [chunk.strip() for chunk in re.split(r"(?=\b\d+\.\s+)", normalized) if chunk.strip()]
+        source_lines = numbered_chunks if len(numbered_chunks) > 1 else normalized.splitlines()
+        clean_lines = [line.strip() for line in source_lines if line.strip()]
         
         for line in clean_lines:
-            # Skip header lines that are too long or contain analysis intro text
-            if len(line) > 120 or any(skip_phrase in line.lower() for skip_phrase in [
+            line = re.sub(r"^\d+\.\s*", "", line).strip()
+
+            # Skip obvious header or instruction lines
+            if any(skip_phrase in line.lower() for skip_phrase in [
                 'based on the', 'analyze the', 'top 5 weak', 'weakest areas', 
                 'quiz performance', 'here are', 'following are'
             ]):
+                continue
+
+            # Skip very long prose only if it doesn't look like a structured topic/detail item
+            if len(line) > 180 and ':' not in line and '-' not in line:
                 continue
             
             # Remove bullet points, numbers, and list markers
@@ -438,7 +448,10 @@ class Storage:
                 
                 # Special case: If topic is generic like "Topic Name", swap it
                 if topic.lower() in ['topic name', 'topic', 'weak area', 'concept']:
-                    topic = detail
+                    if ' - ' in detail:
+                        topic = detail.split(' - ', 1)[0].strip()
+                    else:
+                        topic = detail
                     detail = stripped
             elif "-" in stripped and stripped.count("-") == 1:
                 parts = stripped.split("-", 1)
@@ -458,12 +471,24 @@ class Storage:
             topic = topic.replace('TOP 5 WEAK AREAS', '').replace('WEAK AREAS', '').strip()
             topic = topic.replace('Specific misconception or gap', '').strip()
             topic = topic.strip(':-,.')
+            if len(topic) > 50:
+                topic = " ".join(topic.split()[:6]).strip(':-,.')
+
+            generic_topics = {
+                'analysis', 'review', 'chat', 'conversation', 'quiz', 'performance', 'weak areas',
+                'not enough conversation', 'no quiz attempts', 'no data available'
+            }
+            generic_details = [
+                'not enough conversation history',
+                'no quiz attempts found',
+                'no data available for analysis'
+            ]
             
             # Only add if topic is meaningful and not too long
             if 3 <= len(topic) <= 50 and not any(skip in topic.lower() for skip in [
                 'given', 'based on', 'here are', 'the learner', 'quiz performance',
                 'are the', 'following', 'identify'
-            ]):
+            ]) and topic.lower() not in generic_topics and not any(text in detail.lower() for text in generic_details):
                 items.append((topic, detail))
         
         return items[:5]  # Limit to top 5

@@ -1,7 +1,7 @@
 export type Task = 'tutor' | 'quiz' | 'analyze' | 'roadmap' | 'questions'
 export type TaskStatus = 'pending' | 'complete'
 
-const BASE = 'http://127.0.0.1:8000'
+const BASE = ''
 const SESSION_KEY = 'agentic-study-session'
 
 export type QuizQuestionDto = {
@@ -33,6 +33,20 @@ export type RoadmapTaskDto = {
   weak_topic_id?: number
   created_at: string
   updated_at?: string | null
+}
+
+export type MemoryBankItem = {
+  id: string
+  text: string
+  meta?: Record<string, unknown>
+}
+
+export type RecommendedAction = {
+  action: 'tutor' | 'quiz' | 'analyze' | 'roadmap' | 'questions'
+  reason: string
+  suggestion: string
+  focused?: boolean
+  weak_topics?: Array<{ id?: number; title?: string; topic?: string; detail?: string }>
 }
 
 export function getSessionId(): string | undefined {
@@ -95,6 +109,63 @@ export async function callAgent(
   return data as Promise<{ task: Task; output: any; meta: any; session_id?: string }>
 }
 
+export async function callAgentStream(
+  input: string,
+  history: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [],
+  onToken: (token: string) => void,
+  onDone: (payload: { sessionId?: string; nextAction?: RecommendedAction }) => void,
+  sessionId?: string,
+) {
+  const payload: any = { task: 'tutor', input, history }
+  const stored = sessionId ?? getSessionId()
+  if (stored) payload.session_id = stored
+
+  const response = await fetch(`/api/tutor/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) throw new Error(`Stream error: ${response.status}`)
+
+  const reader = response.body!.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6))
+          if (data.token) onToken(data.token)
+          if (data.done) {
+            if (data.session_id) persistSessionId(data.session_id)
+            onDone({ sessionId: data.session_id, nextAction: data.next_action })
+          }
+        } catch {}
+      }
+    }
+  }
+}
+
+export async function getRecommendations(sessionId: string) {
+  const response = await fetch(`${BASE}/api/recommendations?session_id=${encodeURIComponent(sessionId)}`)
+  if (!response.ok) throw new Error('Failed to get recommendations')
+  return response.json() as Promise<{
+    session_id: string
+    next_action: RecommendedAction
+    performance: {
+      weak_areas: Array<{ topic: string; accuracy: number; attempts: number }>
+      recommendations: string[]
+      overall_accuracy: number
+    }
+  }>
+}
+
 export async function submitQuizAnswer(payload: QuizAnswerPayload) {
   const response = await fetch(`${BASE}/api/quiz-answer`, {
     method: 'POST',
@@ -153,6 +224,12 @@ export async function addMemoryFromFile(file: File) {
   const r = await fetch(`${BASE}/api/memory`, { method: 'POST', body: fd })
   if (!r.ok) throw new Error('Failed to add memory file')
   return r.json()
+}
+
+export async function fetchMemoryBank(limit: number = 100) {
+  const response = await fetch(`${BASE}/api/memory?limit=${encodeURIComponent(limit)}`)
+  if (!response.ok) throw new Error('Failed to load memory bank')
+  return response.json() as Promise<{ items: MemoryBankItem[] }>
 }
 
 export async function startLearning(sessionId: string, concept: string) {

@@ -164,10 +164,10 @@ export default function Quiz() {
     <div className="panel">
       {weakTopics.length > 0 && (
         <div className="box" style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#fff3cd' }}>
-          <strong>🎯 Target These Weak Areas:</strong>
-          <ul style={{ marginTop: '0.5rem', marginBottom: '0.5rem', paddingLeft: '1.5rem' }}>
+          <strong style={{ color: '#111827' }}>🎯 Target These Weak Areas:</strong>
+          <ul style={{ marginTop: '0.5rem', marginBottom: '0.5rem', paddingLeft: '1.5rem', color: '#111827' }}>
             {weakTopics.map(wt => (
-              <li key={wt.id}><strong>{wt.title}</strong>: {wt.detail}</li>
+              <li key={wt.id}><strong style={{ color: '#111827' }}>{wt.title}</strong>: {wt.detail}</li>
             ))}
           </ul>
           <button onClick={generateWeakAreasQuiz} style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem' }}>

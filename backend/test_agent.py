@@ -10,10 +10,11 @@ from app.storage import Storage
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CHAT_DB = os.path.join(DATA_DIR, "chat.db")
 OLLAMA_MODEL = "llama3.2"
+EMBED_MODEL = "mxbai-embed-large"
 
 try:
     print("Initializing memory...")
-    memory = FAISSMemory(data_dir=DATA_DIR, embed_model=OLLAMA_MODEL)
+    memory = FAISSMemory(data_dir=DATA_DIR, embed_model=EMBED_MODEL)
     print("Initializing storage...")
     storage = Storage(f"sqlite:///{CHAT_DB}")
     print("Initializing agent...")

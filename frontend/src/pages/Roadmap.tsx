@@ -56,6 +56,17 @@ export default function Roadmap() {
         console.log('Using weak topic:', concept)
       }
     }
+
+    // Fallback: extract a better concept from the task detail for generic titles
+    if (!concept || /^(analysis|review|chat|conversation)$/i.test(concept)) {
+      const detail = task.detail.replace(/^\d+\.\s*/, '').trim()
+      if (detail.includes(':')) {
+        concept = detail.split(':', 1)[0].trim()
+      } else {
+        const words = detail.split(/\s+/).filter(Boolean)
+        concept = words.slice(0, 6).join(' ')
+      }
+    }
     
     // Final validation - if concept looks malformed, extract first few words
     if (concept.length > 50 || concept.toLowerCase().includes('weakest') || 
@@ -67,6 +78,7 @@ export default function Roadmap() {
     console.log('Starting learning for concept:', concept)
     setLearningConcept(concept)
     localStorage.setItem('agentic-learning-concept', concept)
+    localStorage.setItem('agentic-learning-detail', task.detail)
     navigate('/')
   }
 

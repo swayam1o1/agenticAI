@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { addMemoryFromFile, addMemoryFromText, fetchHistory, getSessionId } from '../api'
+import { addMemoryFromFile, addMemoryFromText, fetchHistory, fetchMemoryBank, getSessionId } from '../api'
+import type { MemoryBankItem } from '../api'
 
 export default function Memory() {
   const [text, setText] = useState('')
@@ -7,6 +8,8 @@ export default function Memory() {
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
   const [uploadCount, setUploadCount] = useState(0)
+  const [memoryItems, setMemoryItems] = useState<MemoryBankItem[]>([])
+  const [viewingBank, setViewingBank] = useState(false)
 
   useEffect(() => {
     const sessionId = getSessionId()
@@ -48,6 +51,20 @@ export default function Memory() {
     }
   }
 
+  async function loadMemoryBank() {
+    setLoading(true)
+    try {
+      const res = await fetchMemoryBank()
+      setMemoryItems(res.items || [])
+      setViewingBank(true)
+      setStatus(`Loaded ${res.items?.length || 0} memory items.`)
+    } catch (e: any) {
+      setStatus(`Error: ${e.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="panel">
       {uploadCount > 0 && (
@@ -55,6 +72,36 @@ export default function Memory() {
           📚 {uploadCount} items in memory bank
         </div>
       )}
+      <div className="row" style={{ marginTop: 0 }}>
+        <button onClick={loadMemoryBank} disabled={loading}>View Memory Bank</button>
+        {viewingBank && (
+          <button onClick={() => setViewingBank(false)} disabled={loading}>Hide Memory Bank</button>
+        )}
+      </div>
+
+      {viewingBank && (
+        <div className="box" style={{ marginBottom: '1rem' }}>
+          <h3 style={{ marginBottom: '0.75rem' }}>Memory Bank</h3>
+          {memoryItems.length === 0 ? (
+            <div className="status">No memory items stored yet.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '420px', overflow: 'auto' }}>
+              {memoryItems.map(item => (
+                <div key={item.id} style={{ padding: '12px', border: '1px solid #27272f', borderRadius: '6px', background: '#1a1a24' }}>
+                  <div style={{ fontSize: '11px', color: '#71717a', marginBottom: '6px' }}>{item.id}</div>
+                  <div style={{ whiteSpace: 'pre-wrap', fontSize: '13px', lineHeight: '1.6' }}>{item.text}</div>
+                  {item.meta && Object.keys(item.meta).length > 0 && (
+                    <div style={{ marginTop: '8px', fontSize: '12px', color: '#a1a1aa' }}>
+                      Meta: {JSON.stringify(item.meta)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <h3>Add Memory (Text)</h3>
       <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Paste notes or content to remember…" rows={8} />
       <div className="row">

@@ -13,6 +13,7 @@ class State(TypedDict, total=False):
     input: str
     history: List[Dict[str, Any]]
     retrieved: List[Dict[str, Any]]
+    proactive: Dict[str, Any]
     quiz: Dict[str, Any]
     analysis: Dict[str, Any]
     roadmap: Dict[str, Any]
@@ -40,15 +41,56 @@ class StudyAgent:
         state["retrieved"] = retrieved
         return state
 
+    def _build_proactive_context(self, session_id: Optional[str]) -> Dict[str, Any]:
+        proactive: Dict[str, Any] = {"weak_topics": [], "roadmap_tasks": []}
+        if not self.storage or not session_id:
+            return proactive
+        try:
+            weak_topics = self.storage.get_weak_topics(session_id)
+            roadmap_tasks = self.storage.get_roadmap_tasks(session_id)
+            proactive["weak_topics"] = weak_topics[:3]
+            proactive["roadmap_tasks"] = [task for task in roadmap_tasks if task.get("status") == "pending"][:3]
+        except Exception as exc:
+            print(f"Warning: could not build proactive context: {exc}")
+        return proactive
+
     def _tutor(self, state: State) -> State:
         ctx = "\n\n".join([f"[Score {r['score']:.2f}] {r['text']}" for r in state.get("retrieved", [])])
+
+        history = state.get("history", [])
+        history_text = ""
+        if history:
+            recent = history[-10:]
+            history_text = "\n".join([f"{m.get('role','').upper()}: {m.get('content','')}" for m in recent])
+
+        proactive = state.get("proactive", {})
+        weak_topics = proactive.get("weak_topics", [])
+        roadmap_tasks = proactive.get("roadmap_tasks", [])
+
         prompt = (
-            "You are a helpful tutor. Use the provided context to answer clearly,"
-            " step-by-step, with examples when helpful.\n\n"
-            f"Context:\n{ctx}\n\n"
-            f"Question: {state.get('input','')}\n"
-            "Answer:"
+            "You are an expert AI tutor. Your teaching style:\n"
+            "- Explain concepts step-by-step with clear structure\n"
+            "- Use real-world analogies and examples\n"
+            "- Format with markdown: ## headers, **bold** key terms, bullet points\n"
+            "- Use code blocks for code or pseudocode\n"
+            "- Use the learner's saved memory as grounding when it is relevant\n"
+            "- Proactively suggest the best next step when you notice confusion or a weak area\n"
+            "- Be concise but thorough, ask follow-up questions when helpful\n\n"
         )
+        if ctx.strip():
+            prompt += f"Reference Material:\n{ctx}\n\n"
+        if history_text:
+            prompt += f"Conversation so far:\n{history_text}\n\n"
+        if weak_topics:
+            prompt += "Known weak areas to reinforce:\n"
+            prompt += "\n".join([f"- {item.get('title', 'Unknown')}: {item.get('detail', '')}" for item in weak_topics])
+            prompt += "\n\n"
+        if roadmap_tasks:
+            prompt += "Open study tasks:\n"
+            prompt += "\n".join([f"- {task.get('title', 'Task')}: {task.get('detail', '')}" for task in roadmap_tasks])
+            prompt += "\n\n"
+        prompt += f"Student: {state.get('input','')}\nTutor:"
+
         answer = self.llm.generate(prompt)
         state["output"] = {"answer": answer, "citations": [r.get("meta", {}) for r in state.get("retrieved", [])]}
         return state
@@ -291,6 +333,7 @@ class StudyAgent:
             "input": user_input,
             "history": history or [],
             "session_id": session_id,
+            "proactive": self._build_proactive_context(session_id),
         }
         try:
             final_state: State = self.graph.invoke(initial)
@@ -318,6 +361,7 @@ class StudyAgent:
 
         response_meta: Dict[str, Any] = dict(final_state.get("meta") or {})
         response_meta["retrieved"] = final_state.get("retrieved", [])
+        response_meta["proactive"] = final_state.get("proactive", {})
         quiz_data = final_state.get("quiz")
         if self.storage and session_id:
             attempt_id = None
@@ -337,6 +381,12 @@ class StudyAgent:
                 response_meta["quiz_attempt_id"] = attempt_id
             assistant_text = self._format_output(output)
             self.storage.log_message(session_id, "assistant", assistant_text, task=task, meta=response_meta)
+            memory_note = self._build_memory_note(task, user_input, assistant_text, final_state.get("retrieved", []))
+            if memory_note:
+                self.memory.add_texts(
+                    [memory_note],
+                    [{"session_id": session_id, "task": task, "kind": "interaction-summary"}],
+                )
             analysis_data = final_state.get("analysis")
             if analysis_data and isinstance(analysis_data, dict):
                 analysis_summary = analysis_data.get("summary")
@@ -358,3 +408,24 @@ class StudyAgent:
                 return str(output["plan"])
             return json.dumps(output, ensure_ascii=False)
         return str(output)
+
+    def _build_memory_note(
+        self,
+        task: str,
+        user_input: str,
+        assistant_text: str,
+        retrieved: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[str]:
+        if task not in {"tutor", "analyze", "roadmap", "questions"}:
+            return None
+        assistant_text = assistant_text.strip()
+        if not assistant_text:
+            return None
+        compact_answer = assistant_text[:1200]
+        reference_count = len(retrieved or [])
+        return (
+            f"Task: {task}\n"
+            f"Learner request: {user_input.strip()}\n"
+            f"Tutor response summary: {compact_answer}\n"
+            f"Referenced memory chunks: {reference_count}"
+        )
