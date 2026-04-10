@@ -5,7 +5,9 @@ type Props = { role: 'user' | 'assistant', content: string, isStreaming?: boolea
 export default function ChatMessage({ role, content, isStreaming }: Props) {
   return (
     <div className={`chat-msg ${role}`}>
-      <div className="role">{role === 'user' ? 'You' : 'Assistant'}</div>
+      <div className="role">
+        {role === 'user' ? '🙋 You' : '🤖 Assistant'}
+      </div>
       <div className="bubble">
         {role === 'assistant' ? (
           <div className="markdown-body">

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { callAgentStream, fetchHistory, getRecommendations, getSessionId } from '../api'
+import { callAgentStream, fetchHistory, getRecommendations, getSessionId, fetchWeakTopics } from '../api'
 import type { RecommendedAction } from '../api'
 import ChatMessage from '../components/ChatMessage'
 import { useNavigate } from 'react-router-dom'
@@ -14,6 +14,8 @@ export default function Tutor() {
   const [showQuizButton, setShowQuizButton] = useState(false)
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [nextAction, setNextAction] = useState<RecommendedAction | null>(null)
+  const [weakTopicsCount, setWeakTopicsCount] = useState<number | null>(null)
+  const [newTopicToast, setNewTopicToast] = useState<string | null>(null)
   const navigate = useNavigate()
 
   // Load history only once
@@ -33,8 +35,31 @@ export default function Tutor() {
       getRecommendations(sessionId)
         .then(data => setNextAction(data.next_action))
         .catch(err => console.error('Failed to load recommendations:', err))
+        
+      fetchWeakTopics(sessionId)
+        .then(data => setWeakTopicsCount(data.weak_topics?.length || 0))
+        .catch(console.error)
     }
   }, [])
+  
+  // Poll for weak topics in background
+  useEffect(() => {
+    const sessionId = getSessionId()
+    if (!sessionId) return
+    const interval = setInterval(() => {
+      fetchWeakTopics(sessionId)
+        .then(data => {
+            const count = data.weak_topics?.length || 0;
+            if (weakTopicsCount !== null && count > weakTopicsCount) {
+                setNewTopicToast(`Analysis engine found a new weak area: ${data.weak_topics[0].title}!`)
+                // auto-hide toast
+                setTimeout(() => setNewTopicToast(null), 8000)
+            }
+            setWeakTopicsCount(count)
+        })
+    }, 10000) // every 10 secs
+    return () => clearInterval(interval)
+  }, [weakTopicsCount])
 
   // Check for learning concept separately
   useEffect(() => {
@@ -147,19 +172,50 @@ export default function Tutor() {
 
   return (
     <div className="panel">
+      {newTopicToast && (
+        <div className="celebrate" style={{
+            padding: '16px 20px', 
+            background: 'linear-gradient(135deg, #fefce8, #fff7ed)',
+            border: '2.5px solid #fde68a',
+            borderRadius: '14px',
+            color: '#b45309',
+            fontWeight: 900,
+            marginBottom: '1rem',
+            animation: 'fadeUp 0.4s cubic-bezier(.34,1.56,.64,1) both',
+            boxShadow: '0 4px 14px rgba(250,204,21,0.18)'
+        }}>
+            🚨 {newTopicToast}
+        </div>
+      )}
       {nextAction && (
-        <div className="box" style={{ marginBottom: '1rem', borderLeft: '3px solid #6366F1' }}>
-          <strong>🤖 Next recommended step: {nextAction.action}</strong>
-          <p style={{ marginTop: '0.5rem' }}>{nextAction.reason}</p>
-          <p style={{ color: '#a1a1aa', marginTop: '0.25rem' }}>{nextAction.suggestion}</p>
+        <div style={{
+          marginBottom: '1rem',
+          padding: '16px 20px',
+          background: 'linear-gradient(135deg, #f0f9ff, #f3e8ff)',
+          border: '2.5px solid #c4b5fd',
+          borderRadius: '14px',
+          boxShadow: '0 4px 14px rgba(168,85,247,0.1)',
+        }}>
+          <strong style={{ color: '#7c3aed', fontWeight: 900, fontSize: '15px' }}>🤖 Next recommended step: {nextAction.action}</strong>
+          <p style={{ marginTop: '0.5rem', color: '#1e3a5f', fontWeight: 600 }}>{nextAction.reason}</p>
+          <p style={{ color: '#64748b', marginTop: '0.25rem', fontWeight: 600 }}>{nextAction.suggestion}</p>
           <button onClick={followRecommendation} style={{ marginTop: '0.75rem' }}>
-            Do this next
+            ✨ Do this next
           </button>
         </div>
       )}
       {learningConcept && (
-        <div className="box" style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#e7f3ff' }}>
-          <strong>🎯 Learning: {learningConcept}</strong>
+        <div style={{
+          marginBottom: '1rem',
+          padding: '12px 18px',
+          background: 'linear-gradient(135deg, #e0f2fe, #f3e8ff)',
+          border: '2px solid #bae6fd',
+          borderRadius: '12px',
+          fontWeight: 800,
+          color: '#0284c7',
+          fontSize: '15px',
+        }}>
+          🎯 Learning: {learningConcept}
         </div>
       )}
       <div className="chat">
@@ -175,17 +231,17 @@ export default function Tutor() {
       </div>
       {showQuizButton && learningConcept && (
         <div style={{ marginTop: '1rem', marginBottom: '1rem', textAlign: 'center' }}>
-          <button 
+          <button
             onClick={goToQuiz}
-            style={{ backgroundColor: '#28a745', color: '#fff', padding: '0.6rem 1.2rem', fontSize: '1rem' }}
+            style={{ background: 'linear-gradient(135deg, #22c55e, #38bdf8)', fontSize: '15px', padding: '14px 28px' }}
           >
-            ✅ Ready! Go to Quiz on {learningConcept}
+            🎉 Ready! Go to Quiz on {learningConcept}
           </button>
         </div>
       )}
       <div className="input-row">
-        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask anything from your study materials…" onKeyDown={e => { if(e.key==='Enter') send() }} />
-        <button onClick={send} disabled={loading}>Send</button>
+        <input value={input} onChange={e => setInput(e.target.value)} placeholder="💬 Ask anything from your study materials…" onKeyDown={e => { if(e.key==='Enter') send() }} />
+        <button onClick={send} disabled={loading}>🚀 Send</button>
       </div>
     </div>
   )

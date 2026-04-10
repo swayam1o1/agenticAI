@@ -8,6 +8,8 @@ import Analytics from './pages/Analytics'
 import Roadmap from './pages/Roadmap'
 import Memory from './pages/Memory'
 import Sessions from './pages/Sessions'
+import Flashcards from './pages/Flashcards'
+import Mindmap from './pages/Mindmap'
 import './styles.css'
 
 const router = createBrowserRouter([
@@ -20,7 +22,9 @@ const router = createBrowserRouter([
       { path: 'analytics', element: <Analytics /> },
       { path: 'roadmap', element: <Roadmap /> },
       { path: 'memory', element: <Memory /> },
-      { path: 'sessions', element: <Sessions /> }
+      { path: 'sessions', element: <Sessions /> },
+      { path: 'flashcards', element: <Flashcards /> },
+      { path: 'mindmap', element: <Mindmap /> }
     ]
   }
 ])

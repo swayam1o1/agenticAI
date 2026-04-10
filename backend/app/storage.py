@@ -126,6 +126,30 @@ class ConceptMastery(Base):
     last_practiced = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class FlashcardGen(Base):
+    __tablename__ = "flashcard_gens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String, ForeignKey("chat_sessions.id"), index=True)
+    topic = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class FlashcardItem(Base):
+    __tablename__ = "flashcard_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    gen_id = Column(Integer, ForeignKey("flashcard_gens.id", ondelete="CASCADE"))
+    front = Column(Text)
+    back = Column(Text)
+
+class MindmapGen(Base):
+    __tablename__ = "mindmap_gens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String, ForeignKey("chat_sessions.id"), index=True)
+    topic = Column(String, nullable=True)
+    mindmap = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_COMPLETE = "complete"
@@ -382,20 +406,24 @@ class Storage:
     def _create_tasks_from_weak_topics(
         self, session: Session, session_id: str, weak_topics: Sequence[WeakTopic]
     ) -> None:
-        existing = {
-            (task.title, task.detail)
-            for task in (
-                session.query(RoadmapTask)
-                .filter(RoadmapTask.session_id == session_id)
-                .all()
-            )
-        }
+        existing_tasks = session.query(RoadmapTask).filter(RoadmapTask.session_id == session_id).all()
+        # Case-insensitive deduplication
+        existing = {(task.title.lower(), task.detail.lower()) for task in existing_tasks}
+        
+        # Enforce maximum of 5 pending tasks at a time to prevent overwhelming the user but allow more growth
+        pending_count = sum(1 for task in existing_tasks if task.status == TASK_STATUS_PENDING)
+        max_pending = 5
+
         for weak_topic in weak_topics:
+            if pending_count >= max_pending:
+                break
+                
             title = f"Review {weak_topic.topic.title()}"
             detail = weak_topic.detail or f"Practice {weak_topic.topic} until it feels comfortable."
-            key = (title, detail)
+            key = (title.lower(), detail.lower())
             if key in existing:
                 continue
+                
             session.add(
                 RoadmapTask(
                     session_id=session_id,
@@ -407,6 +435,7 @@ class Storage:
                 )
             )
             existing.add(key)
+            pending_count += 1
 
     def _parse_summary(self, summary: str) -> List[Tuple[str, str]]:
         """Parse weak topics from LLM output, handling various formats including markdown"""
@@ -468,14 +497,15 @@ class Storage:
                     detail = stripped
             
             # Clean up topic name - remove common prefixes and extra text
-            topic = topic.replace('TOP 5 WEAK AREAS', '').replace('WEAK AREAS', '').strip()
+            topic = topic.replace('TOP 5 WEAK AREAS', '').replace('WEAK AREAS', '')
+            topic = topic.replace('TOP 5 STUDY AREAS', '').replace('STUDY AREAS', '').strip()
             topic = topic.replace('Specific misconception or gap', '').strip()
             topic = topic.strip(':-,.')
             if len(topic) > 50:
                 topic = " ".join(topic.split()[:6]).strip(':-,.')
 
             generic_topics = {
-                'analysis', 'review', 'chat', 'conversation', 'quiz', 'performance', 'weak areas',
+                'analysis', 'review', 'chat', 'conversation', 'quiz', 'performance', 'weak areas', 'study areas',
                 'not enough conversation', 'no quiz attempts', 'no data available'
             }
             generic_details = [
@@ -586,4 +616,46 @@ class Storage:
                     "created_at": m.created_at.isoformat(),
                 }
                 for m in masteries
+            ]
+
+    def log_flashcards(self, session_id: str, topic: Optional[str], cards: List[Dict[str, str]]) -> None:
+        with self.Session() as session:
+            gen = FlashcardGen(session_id=session_id, topic=topic)
+            session.add(gen)
+            session.flush()
+            for c in cards:
+                session.add(FlashcardItem(gen_id=gen.id, front=c.get("front", ""), back=c.get("back", "")))
+            session.commit()
+
+    def get_flashcards_history(self, session_id: str) -> List[Dict[str, Any]]:
+        with self.Session() as session:
+            gens = session.query(FlashcardGen).filter(FlashcardGen.session_id == session_id).order_by(FlashcardGen.created_at.desc()).all()
+            history = []
+            for gen in gens:
+                items = session.query(FlashcardItem).filter(FlashcardItem.gen_id == gen.id).all()
+                history.append({
+                    "id": gen.id,
+                    "topic": gen.topic,
+                    "created_at": gen.created_at.isoformat(),
+                    "flashcards": [{"front": item.front, "back": item.back} for item in items]
+                })
+            return history
+
+    def log_mindmap(self, session_id: str, topic: Optional[str], mindmap: str) -> None:
+        with self.Session() as session:
+            gen = MindmapGen(session_id=session_id, topic=topic, mindmap=mindmap)
+            session.add(gen)
+            session.commit()
+
+    def get_mindmap_history(self, session_id: str) -> List[Dict[str, Any]]:
+        with self.Session() as session:
+            gens = session.query(MindmapGen).filter(MindmapGen.session_id == session_id).order_by(MindmapGen.created_at.desc()).all()
+            return [
+                {
+                    "id": gen.id,
+                    "topic": gen.topic,
+                    "mindmap": gen.mindmap,
+                    "created_at": gen.created_at.isoformat()
+                }
+                for gen in gens
             ]

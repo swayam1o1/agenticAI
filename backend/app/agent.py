@@ -9,7 +9,7 @@ from .storage import Storage
 
 
 class State(TypedDict, total=False):
-    task: Literal["tutor", "quiz", "analyze", "roadmap", "questions"]
+    task: Literal["tutor", "quiz", "analyze", "roadmap", "questions", "synthesize", "mindmap", "flashcards"]
     input: str
     history: List[Dict[str, Any]]
     retrieved: List[Dict[str, Any]]
@@ -33,11 +33,15 @@ class StudyAgent:
         return state["task"]
 
     def _retrieve(self, state: State) -> State:
-        query = state.get("input", "")
-        hits = self.memory.similarity_search(query, k=5)
+        query = state.get("input", "").strip()
         retrieved = []
-        for _, score, md in hits:
-            retrieved.append({"score": score, **md})
+        if query and self.memory:
+            try:
+                hits = self.memory.similarity_search(query, k=5)
+                for _, score, md in hits:
+                    retrieved.append({"score": score, **md})
+            except Exception as e:
+                print(f"Retrieval error: {e}")
         state["retrieved"] = retrieved
         return state
 
@@ -129,8 +133,9 @@ class StudyAgent:
             return state
         
         prompt = (
-            "Create a 5-question multiple choice quiz (A-D) about the topic."
-            " Provide the correct option letter and one-sentence explanation after each question.\n"
+            "Create a 5-question multiple choice quiz (A-D) about the topic.\n"
+            "CRITICAL: Ensure that all four options (A, B, C, D) are approximately the EXACT SAME character length so the user cannot guess based on formatting!\n"
+            "Provide the correct option letter and one-sentence explanation after each question.\n"
             f"{weak_topics_focus}\n"
             "Format strictly as: Q:..., A) ..., B) ..., C) ..., D) ..., Answer: <letter>, Explanation: ...\n\n"
             f"Context (may be empty):\n{ctx}\n\nTopic: {topic_input}\n"
@@ -243,33 +248,69 @@ class StudyAgent:
         """Analyze based on conversation history"""
         history = state.get("history", [])
         
-        if not history or len(history) < 3:
+        if not history or len(history) < 1:
             state["analysis"] = {"summary": "Not enough conversation history. Chat more with the tutor first."}
             state["output"] = state["analysis"]
             return state
         
-        # Build conversation summary
+        # Pre-extract topics from "Please teach me about X" / "Explain X" / "What is X" patterns
+        import re
+        requested_topics = []
+        teach_patterns = [
+            r"(?:please\s+)?teach\s+me\s+about\s+(.+?)(?:\.|$)",
+            r"(?:please\s+)?explain\s+(?:to\s+me\s+)?(.+?)(?:\.|$)",
+            r"what\s+is\s+(.+?)(?:\?|$)",
+            r"how\s+does\s+(.+?)\s+work",
+            r"tell\s+me\s+about\s+(.+?)(?:\.|$)",
+        ]
+        for msg in history:
+            if msg.get("role") == "user":
+                content = msg.get("content", "").strip()
+                for pattern in teach_patterns:
+                    m = re.search(pattern, content, re.IGNORECASE)
+                    if m:
+                        topic = m.group(1).strip().rstrip("?.,!")
+                        if 2 < len(topic) < 80:
+                            requested_topics.append(topic)
+                        break
+
+        # Build conversation summary (last 30 messages)
         recent_messages = history[-30:]
         conversation_text = "\n".join([
             f"{msg.get('role', 'unknown').upper()}: {msg.get('content', '')[:200]}"
             for msg in recent_messages
         ])
         
+        # Include explicitly requested topics in the prompt
+        topics_hint = ""
+        if requested_topics:
+            unique_topics = list(dict.fromkeys(requested_topics))[:5]  # deduplicate, keep order
+            topics_hint = (
+                "NOTE: The learner explicitly asked to learn about these topics: "
+                + ", ".join(f'"{t}"' for t in unique_topics)
+                + ". These MUST appear in your output.\n\n"
+            )
+
         prompt = (
-            "Analyze the conversation below and identify the TOP 5 areas where the learner shows confusion, "
-            "asks repeated questions, or needs clarification.\n"
+            "Analyze the conversation below and produce the TOP 5 study areas.\n"
+            "Rules:\n"
+            "- If the learner explicitly ASKED to learn something ('teach me about X', 'explain X', 'what is X'), that topic MUST be included.\n"
+            "- If the learner shows confusion or repeated questions about a concept, include that.\n"
+            "- If the learner seems competent, suggest the next advanced concept to master.\n"
+            f"{topics_hint}"
             "Return ONLY a numbered list with this exact format:\n"
-            "1. Topic Name: Brief explanation of the confusion or gap\n"
-            "2. Topic Name: Brief explanation of the confusion or gap\n"
+            "1. Topic Name: Brief explanation of why this should be studied/reviewed\n"
+            "2. Topic Name: Brief explanation of why this should be studied/reviewed\n"
             "Do NOT include introductory text or headers.\n\n"
             f"Conversation History:\n{conversation_text}\n\n"
-            "TOP 5 WEAK AREAS:\n"
+            "TOP 5 STUDY AREAS:\n"
         )
         
         analysis = self.llm.generate(prompt)
         state["analysis"] = {"summary": analysis}
         state["output"] = state["analysis"]
         return state
+
 
     def _roadmap(self, state: State) -> State:
         ctx = "\n\n".join([r["text"] for r in state.get("retrieved", [])])
@@ -284,6 +325,151 @@ class StudyAgent:
         state["output"] = state["roadmap"]
         return state
 
+    def _synthesize(self, state: State) -> State:
+        ctx = "\n\n".join([r["text"] for r in state.get("retrieved", [])])
+        session_id = state.get("session_id")
+        
+        # Gather all context for synthesis
+        history = state.get("history", [])
+        history_text = "\n".join([f"{m.get('role','').upper()}: {m.get('content','')}" for m in history[-20:]])
+        
+        weak_topics = []
+        if self.storage and session_id:
+            weak_topics = self.storage.get_weak_topics(session_id)
+            
+        weak_text = "\n".join([f"- {wt.get('title', 'Topic')}: {wt.get('detail', '')}" for wt in weak_topics])
+        
+        prompt = (
+            "You are an AI Study Guide Synthesizer (similar to NotebookLM).\n"
+            "Based on the learner's chat history, weak areas, and the retrieved context about the subject,\n"
+            "generate a comprehensive 'Study Guide' or 'Briefing Doc'.\n"
+            "Include:\n"
+            "1. **Core Concept Summary**: Explain the main topics discovered comprehensively but concisely.\n"
+            "2. **FAQ Section**: Anticipate 3-5 common questions the learner might have and provide clear answers.\n"
+            "3. **Focus Areas to Review**: Review the known weak topics with specific advice.\n"
+            "Use Markdown formatting structure with clear headings.\n\n"
+        )
+        
+        if ctx.strip():
+            prompt += f"Context Documents:\n{ctx}\n\n"
+        if history_text:
+            prompt += f"Recent Chat Interactions:\n{history_text}\n\n"
+        if weak_text:
+            prompt += f"Known Weak Areas:\n{weak_text}\n\n"
+            
+        prompt += "Generate the Study Guide now:\n"
+        
+        guide = self.llm.generate(prompt)
+        state["output"] = {"guide": guide}
+        return state
+
+    def _mindmap(self, state: State) -> State:
+        session_id = state.get("session_id")
+        weak_topics = []
+        if self.storage and session_id:
+            weak_topics = self.storage.get_weak_topics(session_id)
+        
+        history = state.get("history", [])
+        history_text = "\n".join([f"{m.get('role','').upper()}: {m.get('content','')}" for m in history[-20:]])
+        
+        user_input = state.get("input", "")
+        focus_prompt = f"The user requested this SPECIFIC topic: '{user_input}'. Prioritize ONLY this topic.\n" if user_input else ""
+        
+        prompt = (
+            "You are an AI that generates valid Mermaid.js Mindmaps.\n"
+            f"{focus_prompt}"
+            "Create a cohesive mind map covering the topics discussed in the following chat history and known weak topics.\n"
+            "Use the strict Mermaid mindmap syntax:\n"
+            "mindmap\n"
+            "  root((\"Main Topic\"))\n"
+            "    [\"ACTUAL CONCEPTUAL SUBTOPIC\"]\n"
+            "      [\"ACTUAL CONCEPTUAL DETAIL\"]\n\n"
+            "CRITICAL RULES TO PREVENT CRASHES AND HALLUCINATIONS:\n"
+            "1. You MUST wrap EVERY single node's text in brackets and quotes like this: [\"Your text here\"]. This ensures colons, commas, and parentheses do not crash the parser.\n"
+            "2. Do NOT include any markdown code block backticks (like ```mermaid), JUST the raw mermaid syntax starting with 'mindmap'.\n"
+            "3. Keep labels very short and simple (no complex symbols).\n"
+            "4. NEVER output the placeholder words 'Main Topic', 'Subtopic1', 'Detail1'. You MUST write ACTUAL deep concepts, algorithms, and definitions based on the user's specific topic!\n\n"
+        )
+        if weak_topics:
+            prompt += "Weak Topics:\n" + "\n".join([f"- {w.get('title')}: {w.get('detail')}" for w in weak_topics]) + "\n\n"
+        if history_text:
+            prompt += f"Chat History:\n{history_text}\n\n"
+            
+        mindmap = self.llm.generate(prompt)
+        if mindmap.startswith("```mermaid"):
+            mindmap = mindmap[10:].strip()
+        if mindmap.startswith("```"):
+            mindmap = mindmap[3:].strip()
+        if mindmap.endswith("```"):
+            mindmap = mindmap[:-3].strip()
+            
+        state["output"] = {"mindmap": mindmap.strip()}
+        return state
+
+    def _flashcards(self, state: State) -> State:
+        session_id = state.get("session_id")
+        weak_topics = []
+        if self.storage and session_id:
+            weak_topics = self.storage.get_weak_topics(session_id)
+        
+        prompt = (
+            "You are an expert AI tutor.\n"
+            "Your ONLY task is to generate exactly 4 highly effective, strictly technical study flashcards.\n"
+            "Output the flashcards strictly as a valid JSON array of objects. Do not write anything outside the JSON.\n"
+            "Flashcards MUST be purely technical and factual (e.g. definitions, algorithms, mathematical constraints). NO conversational text.\n"
+            "CRITICAL: UNDER NO CIRCUMSTANCES should you create flashcards about this application (Do NOT write about 'Chat Analysis', 'Roadmap', 'Weak Areas Engine', or 'Quizzes'). ONLY educational content.\n"
+            "Format: [{\"front\": \"string\", \"back\": \"string\"}]\n\n"
+        )
+        
+        user_input = state.get("input", "")
+        if user_input:
+            prompt += f"Target this Specific Topic requested by user:\n- {user_input}\n\n"
+        elif weak_topics:
+            prompt += "Target these Weak Topics:\n" + "\n".join([f"- {w.get('title')}: {w.get('detail')}" for w in weak_topics]) + "\n\n"
+        else:
+            prompt += "Since there are no weak topics yet, generate 4 flashcards covering general programming and data science core concepts (like what is an API, what is a database, what is a neural network, etc).\n\n"
+            
+        # Add some context if retrieved
+        if state.get("retrieved"):
+            prompt += "Here is some context from the user's memory bank:\n"
+            for doc in state.get("retrieved", []):
+                prompt += doc.get("page_content", "") + "\n\n"
+                
+        flashcards_json = self.llm.generate(prompt)
+        
+        import json
+        import re
+        
+        cards = []
+        # Find all individual JSON objects that look like flashcards
+        matches = re.findall(r'\{[^{}]*?\"front\"[^{}]*?\}', flashcards_json, re.DOTALL | re.IGNORECASE)
+        
+        for m in matches:
+            try:
+                # Some models escape quotes inside strings, or add rogue quotes
+                obj = json.loads(m)
+                if "front" in obj and "back" in obj:
+                    cards.append(obj)
+            except Exception:
+                pass
+                
+        # If the regex matcher failed, try parsing the whole thing as a fallback
+        if not cards:
+            try:
+                match = re.search(r'\[.*\]', flashcards_json, re.DOTALL)
+                if match:
+                    parsed = json.loads(match.group(0))
+                    if isinstance(parsed, list):
+                        cards = parsed
+            except Exception:
+                pass
+
+        if not cards:
+            cards = [{"front": "Error generating flashcards", "back": f"Invalid JSON format. Output:\n{flashcards_json[:100]}"}]
+            
+        state["output"] = {"flashcards": cards[:4]} # strict 4 items as requested
+        return state
+
     def _build_graph(self):
         g = StateGraph(State)
         g.add_node("retrieve", self._retrieve)
@@ -292,6 +478,9 @@ class StudyAgent:
         g.add_node("do_analyze", self._analyze)
         g.add_node("do_roadmap", self._roadmap)
         g.add_node("do_questions", self._questions)
+        g.add_node("do_synthesize", self._synthesize)
+        g.add_node("do_mindmap", self._mindmap)
+        g.add_node("do_flashcards", self._flashcards)
         g.set_entry_point("retrieve")
 
         # After retrieve, route based on task
@@ -308,6 +497,9 @@ class StudyAgent:
                 "analyze": "do_analyze",
                 "roadmap": "do_roadmap",
                 "questions": "do_questions",
+                "synthesize": "do_synthesize",
+                "mindmap": "do_mindmap",
+                "flashcards": "do_flashcards",
             },
         )
         g.add_edge("do_tutor", END)
@@ -315,6 +507,9 @@ class StudyAgent:
         g.add_edge("do_analyze", END)
         g.add_edge("do_roadmap", END)
         g.add_edge("do_questions", END)
+        g.add_edge("do_synthesize", END)
+        g.add_edge("do_mindmap", END)
+        g.add_edge("do_flashcards", END)
         return g.compile()
 
     def run(
@@ -323,10 +518,12 @@ class StudyAgent:
         user_input: str,
         history: Optional[List[Dict[str, Any]]] = None,
         session_id: Optional[str] = None,
+        silent: bool = False,  # If True, do NOT log the user message (for background workers)
     ) -> Dict[str, Any]:
         if self.storage:
             session_id = self.storage.ensure_session(session_id)
-            self.storage.log_message(session_id, "user", user_input, task=task)
+            if not silent:
+                self.storage.log_message(session_id, "user", user_input, task=task)
 
         initial: State = {
             "task": task,  # type: ignore

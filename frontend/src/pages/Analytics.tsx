@@ -1,220 +1,138 @@
 import { useState, useEffect } from 'react'
-import { callAgent, fetchHistory, fetchAnalysis, getSessionId } from '../api'
+import { fetchWeakTopics, fetchHistory, getSessionId } from '../api'
 import { useNavigate } from 'react-router-dom'
 
+type WeakTopic = { id: number; title: string; detail: string; created_at: string }
+
 export default function Analytics() {
-  const [loading, setLoading] = useState(false)
-  const [analysisType, setAnalysisType] = useState<'quiz' | 'chat' | null>(null)
-  const [summary, setSummary] = useState('')
+  const [weakTopics, setWeakTopics] = useState<WeakTopic[]>([])
   const [history, setHistory] = useState<Array<{ role: string; content: string }>>([])
-  const [autoAnalyzed, setAutoAnalyzed] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
-  useEffect(() => {
+  const refreshData = async (showLoader = false) => {
     const sessionId = getSessionId()
-    if (sessionId && history.length === 0) {
-      // Only load if not already loaded
-      fetchHistory(sessionId)
-        .then(data => {
-          const msgs = data.messages.map(m => ({ role: m.role, content: m.content }))
-          setHistory(msgs)
-        })
-        .catch(err => console.error('Failed to load history:', err))
-      
-      fetchAnalysis(sessionId)
-        .then(data => {
-          if (data.summary) {
-            setSummary(data.summary)
-          }
-        })
-        .catch(err => console.error('Failed to load analysis:', err))
-    }
-  }, [])
+    if (!sessionId) return
+    if (showLoader) setLoading(true)
+    try {
+      const [weakData, histData] = await Promise.all([
+        fetchWeakTopics(sessionId),
+        fetchHistory(sessionId)
+      ])
+      setWeakTopics(weakData.weak_topics || [])
+      setHistory(histData.messages.map((m: any) => ({ role: m.role, content: m.content })))
+      setLastUpdated(new Date().toLocaleTimeString())
+    } catch (e) { console.error(e) }
+    finally { if (showLoader) setLoading(false) }
+  }
 
-  // Check for auto-analyze separately to avoid race conditions
   useEffect(() => {
-    const shouldAutoAnalyze = localStorage.getItem('agentic-quiz-topic')
-    if (shouldAutoAnalyze && !autoAnalyzed && history.length > 0) {
-      setTimeout(() => {
-        analyzeQuiz()
-        setAutoAnalyzed(true)
-      }, 1000)
-    }
-  }, [history])
-
-  async function analyzeQuiz() {
-    setLoading(true)
-    setAnalysisType('quiz')
-    try {
-      const res = await callAgent('analyze', 'quiz-based', history as any)
-      setSummary(res.output?.summary ?? 'No analysis produced')
-      // Clear the auto-analyze trigger
-      localStorage.removeItem('agentic-quiz-topic')
-      localStorage.removeItem('agentic-quiz-attempt-id')
-    } catch (e: any) {
-      setSummary(`Error: ${e.message}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function analyzeChat() {
-    setLoading(true)
-    setAnalysisType('chat')
-    try {
-      const res = await callAgent('analyze', 'chat-based', history as any)
-      setSummary(res.output?.summary ?? 'No analysis produced')
-    } catch (e: any) {
-      setSummary(`Error: ${e.message}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  function goToRoadmap() {
-    navigate('/roadmap')
-  }
+    refreshData(true)
+    // Poll every 8 seconds to pick up background analysis updates
+    const interval = setInterval(() => refreshData(), 8000)
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <div className="panel">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '1rem' }}>
-        <div className="box" style={{ 
-          backgroundColor: '#1a1a24',
-          border: '1px solid #6366F1',
-          borderLeft: '3px solid #6366F1',
-          cursor: 'pointer',
-          transition: 'all 0.15s ease'
-        }}
-        onClick={analyzeQuiz}
-        >
-          <strong style={{ color: '#6366F1', fontSize: '14px' }}>📊 Quiz-Based Analysis</strong>
-          <p style={{ margin: '8px 0 0', fontSize: '13px', color: '#a1a1aa', lineHeight: '1.6' }}>
-            Analyzes quiz performance to identify weak areas based on incorrect answers and patterns.
+      {/* Live Engine Banner */}
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(224,242,254,0.85), rgba(243,232,255,0.85))',
+        border: '2.5px solid rgba(168,85,247,0.5)',
+        borderRadius: 'var(--radius)',
+        padding: '22px 24px',
+        marginBottom: '1.5rem',
+        boxShadow: '0 6px 24px rgba(168,85,247,0.15)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '16px'
+      }}>
+        <div style={{ fontSize: '40px', animation: 'float 3s ease-in-out infinite' }}>🔬</div>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ color: 'var(--purple-dark)', fontWeight: 900, marginBottom: '4px', fontSize: '17px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            Autonomous Analytics Engine
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#dcfce7', color: '#15803d', fontSize: '11px', fontWeight: 900, padding: '2px 10px', borderRadius: '99px', border: '1.5px solid #86efac' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block', animation: 'pulse 1.5s ease-in-out infinite' }} />
+              LIVE
+            </span>
+          </h2>
+          <p style={{ color: 'var(--text)', fontWeight: 700, fontSize: '13px', lineHeight: '1.6', margin: 0 }}>
+            Monitoring chat patterns in real-time. Weak areas auto-update every 8 seconds from the background engine.
+            {lastUpdated && <span style={{ color: '#a855f7', marginLeft: 8, fontWeight: 900 }}>⏱ Last synced: {lastUpdated}</span>}
           </p>
-          <button 
-            style={{ marginTop: '12px', width: '100%' }}
-            onClick={(e) => { e.stopPropagation(); analyzeQuiz(); }}
-            disabled={loading}
-          >
-            Analyze Quiz Performance
-          </button>
         </div>
+      </div>
 
-        <div className="box" style={{ 
-          backgroundColor: '#1a1a24',
-          border: '1px solid #F43F5E',
-          borderLeft: '3px solid #F43F5E',
-          cursor: 'pointer',
-          transition: 'all 0.15s ease'
-        }}
-        onClick={analyzeChat}
-        >
-          <strong style={{ color: '#F43F5E', fontSize: '14px' }}>💬 Chat Log Analysis</strong>
-          <p style={{ margin: '8px 0 0', fontSize: '13px', color: '#a1a1aa', lineHeight: '1.6' }}>
-            Analyzes conversation history to identify topics where you asked many questions or showed confusion.
-          </p>
-          <button 
-            style={{ marginTop: '12px', width: '100%', backgroundColor: '#F43F5E', borderColor: '#F43F5E' }}
-            onClick={(e) => { e.stopPropagation(); analyzeChat(); }}
-            disabled={loading}
-          >
-            Analyze Chat History
-          </button>
-        </div>
+      {/* Chat Message Count */}
+      <div style={{
+        background: 'rgba(255,255,255,0.65)', backdropFilter: 'blur(14px)',
+        border: '2px solid rgba(186,230,253,0.6)', borderRadius: 'var(--radius-sm)',
+        padding: '14px 20px', marginBottom: '1.25rem',
+        display: 'flex', alignItems: 'center', gap: '12px'
+      }}>
+        <span style={{ fontSize: '20px' }}>📜</span>
+        <span style={{ fontWeight: 900, fontSize: '14px', color: 'var(--text)' }}>
+          {history.length} messages tracked in session
+        </span>
+        <span style={{ marginLeft: 'auto', background: 'var(--grad-sky)', color: '#fff', fontSize: '11px', fontWeight: 900, padding: '2px 10px', borderRadius: '99px' }}>
+          {history.filter(m => m.role === 'user').length} from you
+        </span>
       </div>
-      
-      <div className="box">
-        <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: '#e4e4e7' }}>
-          Conversation History ({history.length} messages)
-        </h3>
-        <div style={{ maxHeight: '200px', overflow: 'auto', marginTop: '1rem' }}>
-          {history.map((m, i) => (
-            <div key={i} style={{ marginBottom: '0.5rem', fontSize: '13px', color: '#a1a1aa' }}>
-              <strong style={{ color: '#e4e4e7' }}>{m.role}:</strong> {m.content.substring(0, 100)}...
-            </div>
-          ))}
-        </div>
-      </div>
-      
-      {loading && <div className="loading">
-        {analysisType === 'quiz' ? 'Analyzing quiz performance…' : 'Analyzing chat history…'}
-      </div>}
-      
-      {summary && (
-        <>
-          <div className="box" style={{ 
-            backgroundColor: '#1a1a24',
-            padding: '20px',
-            marginTop: '1rem',
-            border: analysisType === 'quiz' ? '1px solid #6366F1' : '1px solid #F43F5E',
-            borderLeft: analysisType === 'quiz' ? '3px solid #6366F1' : '3px solid #F43F5E'
-          }}>
-            <h3 style={{ 
-              marginTop: 0,
-              marginBottom: '16px',
-              fontSize: '14px',
-              fontWeight: '600',
-              color: analysisType === 'quiz' ? '#6366F1' : '#F43F5E',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
-            }}>
-              {analysisType === 'quiz' ? '🎯 Quiz-Based Weak Areas' : '💬 Chat-Based Weak Areas'}
-            </h3>
-            <div style={{ 
-              whiteSpace: 'pre-wrap',
-              margin: 0,
-              fontSize: '13px',
-              lineHeight: '1.7'
-            }}>
-              {summary.split('\n').map((line, idx) => {
-                // Check if line starts with emoji or special formatting
-                if (line.startsWith('🎯') || line.startsWith('Topic Name:')) {
-                  return (
-                    <div key={idx} style={{ 
-                      color: analysisType === 'quiz' ? '#a5b4fc' : '#fda4af',
-                      marginBottom: '4px',
-                      fontWeight: line.startsWith('🎯') ? '600' : '400'
-                    }}>
-                      {line}
-                    </div>
-                  )
-                } else if (line.trim().startsWith('Generate Focused Quiz')) {
-                  return (
-                    <div key={idx} style={{ 
-                      color: analysisType === 'quiz' ? '#6366F1' : '#F43F5E',
-                      fontWeight: '600',
-                      marginTop: '12px'
-                    }}>
-                      {line}
-                    </div>
-                  )
-                } else if (line.trim()) {
-                  return (
-                    <div key={idx} style={{ color: '#e4e4e7', marginBottom: '4px' }}>
-                      {line}
-                    </div>
-                  )
-                } else {
-                  return <div key={idx} style={{ height: '8px' }} />
-                }
-              })}
-            </div>
+
+      {loading && <div className="loading">🔬 Loading weak areas…</div>}
+
+      {/* Weak Topics Cards */}
+      {weakTopics.length > 0 ? (
+        <div>
+          <h3 style={{ fontSize: '15px', fontWeight: 900, marginBottom: '14px', color: 'var(--purple-dark)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            🎯 Identified Study Areas
+            <span style={{ background: 'var(--grad-candy)', color: '#fff', fontSize: '11px', fontWeight: 900, padding: '2px 10px', borderRadius: '99px' }}>
+              {weakTopics.length} detected
+            </span>
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {weakTopics.map((wt, i) => (
+              <div key={wt.id} style={{
+                background: 'linear-gradient(135deg, rgba(252,231,243,0.85), rgba(255,247,237,0.85))',
+                border: '2.5px solid rgba(236,72,153,0.3)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '16px 20px',
+                animation: `fadeUp 0.3s ${i * 0.05}s ease both`,
+                display: 'flex', gap: '14px', alignItems: 'flex-start'
+              }}>
+                <span style={{ fontSize: '20px', flexShrink: 0 }}>⚠️</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 900, fontSize: '14px', color: '#9d174d', marginBottom: '4px' }}>
+                    {wt.title}
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: '13px', color: '#be185d', lineHeight: 1.6 }}>
+                    {wt.detail}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#f9a8d4', fontWeight: 700, marginTop: '6px' }}>
+                    🕐 Detected: {new Date(wt.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-          <div style={{ marginTop: '1rem', textAlign: 'center' }}>
-            <button 
-              onClick={goToRoadmap}
-              style={{ 
-                backgroundColor: '#6366F1',
-                borderColor: '#6366F1',
-                color: '#fff',
-                padding: '12px 24px',
-                fontSize: '13px'
-              }}
-            >
-              🗺️ View Roadmap & Start Learning
+          <div style={{ marginTop: '1.25rem', textAlign: 'center' }}>
+            <button onClick={() => navigate('/roadmap')} style={{ background: 'var(--grad-candy)', fontSize: '15px', padding: '14px 32px' }}>
+              🗺️ View Roadmap &amp; Start Learning
             </button>
           </div>
-        </>
+        </div>
+      ) : !loading && (
+        <div style={{
+          textAlign: 'center', padding: '3rem',
+          background: 'linear-gradient(135deg, rgba(224,242,254,0.5), rgba(243,232,255,0.5))',
+          borderRadius: 'var(--radius)', border: '2.5px dashed rgba(168,85,247,0.3)',
+        }}>
+          <div className="float" style={{ fontSize: '48px', marginBottom: '10px' }}>🧠</div>
+          <p style={{ color: 'var(--muted)', fontWeight: 900, fontSize: '15px', margin: 0 }}>
+            No weak areas detected yet — chat with the Tutor to generate insights!
+          </p>
+        </div>
       )}
     </div>
   )

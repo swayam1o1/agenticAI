@@ -146,7 +146,7 @@ export async function callAgentStream(
             if (data.session_id) persistSessionId(data.session_id)
             onDone({ sessionId: data.session_id, nextAction: data.next_action })
           }
-        } catch {}
+        } catch { }
       }
     }
   }
@@ -182,6 +182,12 @@ export async function fetchRoadmapTasks(sessionId: string) {
   return response.json() as Promise<{ session_id: string; tasks: RoadmapTaskDto[] }>
 }
 
+export async function fetchQuizHistory(sessionId: string) {
+  const response = await fetch(`${BASE}/api/quiz-history?session_id=${encodeURIComponent(sessionId)}`)
+  if (!response.ok) throw new Error('Failed to load quiz history')
+  return response.json() as Promise<{ session_id: string; quiz_history: any[] }>
+}
+
 export async function updateRoadmapTaskStatus(sessionId: string, taskId: number, status: TaskStatus) {
   const response = await fetch(`${BASE}/api/roadmap/task-status`, {
     method: 'POST',
@@ -210,17 +216,49 @@ export async function fetchWeakTopics(sessionId: string) {
   return response.json() as Promise<{ session_id: string; weak_topics: Array<{ id: number; title: string; detail: string; created_at: string }> }>
 }
 
-export async function addMemoryFromText(text: string) {
+export async function fetchMindmap(sessionId: string, topic?: string) {
+  const url = topic 
+    ? `${BASE}/api/mindmap?session_id=${encodeURIComponent(sessionId)}&topic=${encodeURIComponent(topic)}`
+    : `${BASE}/api/mindmap?session_id=${encodeURIComponent(sessionId)}`
+  const response = await fetch(url)
+  if (!response.ok) throw new Error('Failed to load mind map')
+  return response.json() as Promise<{ session_id: string; mindmap: string }>
+}
+
+export async function fetchMindmapHistory(sessionId: string) {
+  const response = await fetch(`${BASE}/api/mindmap-history?session_id=${encodeURIComponent(sessionId)}`)
+  if (!response.ok) throw new Error('Failed to load mind map history')
+  return response.json() as Promise<{ session_id: string; history: Array<{ id: number; topic: string | null; mindmap: string; created_at: string }> }>
+}
+
+export async function fetchFlashcards(sessionId: string, topic?: string) {
+  const url = topic
+    ? `${BASE}/api/flashcards?session_id=${encodeURIComponent(sessionId)}&topic=${encodeURIComponent(topic)}`
+    : `${BASE}/api/flashcards?session_id=${encodeURIComponent(sessionId)}`
+  const response = await fetch(url)
+  if (!response.ok) throw new Error('Failed to load flashcards')
+  return response.json() as Promise<{ session_id: string; flashcards: Array<{front: string; back: string}> }>
+}
+
+export async function fetchFlashcardsHistory(sessionId: string) {
+  const response = await fetch(`${BASE}/api/flashcards-history?session_id=${encodeURIComponent(sessionId)}`)
+  if (!response.ok) throw new Error('Failed to load flashcards history')
+  return response.json() as Promise<{ session_id: string; history: Array<{ id: number; topic: string | null; created_at: string; flashcards: Array<{front: string; back: string}> }> }>
+}
+
+export async function addMemoryFromText(text: string, sessionId?: string) {
   const fd = new FormData()
   fd.append('texts', text)
+  if (sessionId) fd.append('session_id', sessionId)
   const r = await fetch(`${BASE}/api/memory`, { method: 'POST', body: fd })
   if (!r.ok) throw new Error('Failed to add memory')
   return r.json()
 }
 
-export async function addMemoryFromFile(file: File) {
+export async function addMemoryFromFile(file: File, sessionId?: string) {
   const fd = new FormData()
   fd.append('file', file)
+  if (sessionId) fd.append('session_id', sessionId)
   const r = await fetch(`${BASE}/api/memory`, { method: 'POST', body: fd })
   if (!r.ok) throw new Error('Failed to add memory file')
   return r.json()
@@ -263,7 +301,7 @@ export async function analyzeConceptQuiz(sessionId: string, attemptId: number, c
 }
 
 export async function getLearningProgress(sessionId: string, concept?: string) {
-  const url = concept 
+  const url = concept
     ? `${BASE}/api/learn/progress?session_id=${encodeURIComponent(sessionId)}&concept=${encodeURIComponent(concept)}`
     : `${BASE}/api/learn/progress?session_id=${encodeURIComponent(sessionId)}`
   const response = await fetch(url)
